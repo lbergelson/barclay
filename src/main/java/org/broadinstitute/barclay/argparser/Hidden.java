@@ -1,9 +1,9 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 import java.lang.annotation.*;
 
 /**
- * Indicates that a walker or walker argument should not be presented in the help system.
+ * Indicates that an argument should not be presented in the help system.
  */
 @Documented
 @Inherited

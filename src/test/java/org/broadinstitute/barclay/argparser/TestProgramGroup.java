@@ -1,4 +1,4 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 /**
  * only for testing

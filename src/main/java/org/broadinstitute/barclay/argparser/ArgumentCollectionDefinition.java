@@ -1,10 +1,10 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 import java.io.Serializable;
 
 /**
- * marker interface for classes that are intended to be used with @ArgumentCollection
- * Those are parsed by the CommandLineParser class.
+ * Marker interface for classes that are intended to be used with @ArgumentCollection
+ * Those are parsed by CommandLineParser implementations.
  */
 public interface ArgumentCollectionDefinition extends Serializable{
 }

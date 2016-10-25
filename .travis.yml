@@ -1,0 +1,20 @@
+language: java
+dist: trusty
+sudo: true
+before_cache:
+  - rm -f $HOME/.gradle/caches/modules-2/modules-2.lock
+cache:
+  directories:
+    - $HOME/.gradle/caches/
+    - $HOME/.gradle/wrapper/
+    - $HOME/.m2
+jdk:
+  - oraclejdk8
+script: ./gradlew jacocoTestReport ;
+after_success:
+  - echo "TRAVIS_BRANCH='$TRAVIS_BRANCH'";
+    echo "JAVA_HOME='$JAVA_HOME'";
+    ./gradlew coveralls;
+    if [ "$TRAVIS_BRANCH" == "master" ]; then
+       ./gradlew uploadArchives;
+    fi

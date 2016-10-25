@@ -1,4 +1,4 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
@@ -8,9 +8,8 @@ import java.lang.annotation.Target;
 
 /**
  * Used to annotate which fields of a CommandLineProgram are options given at the command line.
- * If a command line call looks like "cmd option=foo x=y bar baz" the CommandLineProgram
- * would have annotations on fields to handle the values of option and x. All options
- * must be in the form name=value on the command line. The java type of the option
+ * If a command line call looks like "cmd -option foo -x y bar baz" the CommandLineProgram
+ * would have annotations on fields to handle the values of option and x. The java type of the option
  * will be inferred from the type of the field or from the generic type of the collection
  * if this option is allowed more than once. The type must be an enum or
  * have a constructor with a single String parameter.
@@ -43,7 +42,7 @@ public @interface Argument {
     String doc() default "Undocumented option";
 
     /**
-     * If set to false, a {@link org.broadinstitute.hellbender.exceptions.UserException.MissingArgument} will be thrown
+     * If set to false, a {@link org.broadinstitute.barclay.argparser.CommandLineException.MissingArgument} will be thrown
      * if the option is not specified.
      * If 2 options are mutually exclusive and both are required it will be interpreted as one or the other is required
      * and an exception will only be thrown if neither are specified.
@@ -78,5 +77,30 @@ public @interface Argument {
      */
     boolean sensitive() default false;
 
+    //TODO: Start used by the legacy command line parser only.
+    /**
+     * Overwrite default order in which Option are printed in usage by explicitly setting a
+     * print position e.g. printOrder=1 is printed before printOrder=2.
+     * Options without printOrder automatically receive a printOrder that (1) is a multiple of 1000
+     * and (2) reflects the order's default position. This gives you the option to insert your own options between
+     * options inherited from super classes (which order you do not control).
+     * The default ordering follows (1)the option declaration position in the class and (2) sub-classes options printed
+     *  before superclass options.
+     *
+     * @author charles girardot
+     */
+    int printOrder() default Integer.MAX_VALUE;
+
+    /** The minimum number of times that this option is required. */
+    int minElements() default 0;
+
+    /** The maximum number of times this option is allowed. */
+    int maxElements() default Integer.MAX_VALUE;
+
+    /**
+     * This boolean determines if this annotation overrides a parent annotation. If that is the case then
+     * the options of the parent annotation are overridden with this annotation.
+     */
+    boolean overridable() default false;
 
 }

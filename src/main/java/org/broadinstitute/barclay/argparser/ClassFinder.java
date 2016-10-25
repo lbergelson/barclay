@@ -1,4 +1,4 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

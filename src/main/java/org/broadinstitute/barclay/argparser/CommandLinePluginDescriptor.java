@@ -1,6 +1,4 @@
-package org.broadinstitute.hellbender.cmdline.GATKPlugin;
-
-import org.broadinstitute.hellbender.exceptions.UserException;
+package org.broadinstitute.barclay.argparser;
 
 import java.util.List;
 import java.util.Set;
@@ -15,12 +13,9 @@ import java.util.function.Predicate;
  * classes, and delegate to the descriptor to obtain the corresponding plugin instance;
  * the object returned to the parser is then added to the parser's list of argument sources.
  *
- * Descriptors (sub)classes:
- *
- * - must live in the org.broadinstitute.hellbender.cmdline.GATKPlugin package
- * - should have at least one @Argument used to accumulate the user-specified instances
- *   of the plugin seen on the command line. Allowed values for this argument are the
- *   simple class names of the discovered plugin subclasses.
+ * Descriptors (sub)classes should have at least one @Argument used to accumulate the
+ * user-specified instances of the plugin seen on the command line. Allowed values for
+ * this argument are the simple class names of the discovered plugin subclasses.
  *
  * Plugin (sub)classes:
  *
@@ -57,7 +52,7 @@ import java.util.function.Predicate;
  *  getAllowedValuesForDescriptorArgument is only called when the command line parser is constructing
  *  a help/usage message.
  */
-public abstract class GATKCommandLinePluginDescriptor<T> {
+public abstract class CommandLinePluginDescriptor<T> {
 
     /**
      * Return a display name to identify this plugin to the user
@@ -93,6 +88,12 @@ public abstract class GATKCommandLinePluginDescriptor<T> {
      * through the descriptor's constructor) an instance of this plugin class.
      * The descriptor should maintain a list of these instances so they can later
      * be retrieved by {@link #getAllInstances}.
+     *
+     * In addition, implementations should recognize and reject any attempt to instantiate
+     * a second instance of a plugin that has the same simple class name as another plugin
+     * controlled by this descriptor (which can happen if they have different qualified names
+     * within the base package used by the descriptor) since the user has no way to disambiguate
+     * these on the command line).
      *
      * @param pluggableClass a plugin class discovered by the command line parser that
      *                       was not rejected by {@link #getClassFilter}
@@ -150,11 +151,11 @@ public abstract class GATKCommandLinePluginDescriptor<T> {
      * been specified on the command line have a corresponding plugin instance (this will
      * detect a user-specified value for which there is no corresponding plugin class).
      *
-     * @throws UserException.CommandLineException if a plugin value has been specified that
+     * @throws CommandLineException if a plugin value has been specified that
      * has no corresponding plugin instance (i.e., the plugin class corresponding to the name
      * was not discovered)
      */
-    public abstract void validateArguments() throws UserException.CommandLineException;
+    public abstract void validateArguments() throws CommandLineException;
 
     /**
      * @return an ordered List of actual plugin instances that have been specified on the command

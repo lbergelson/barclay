@@ -1,17 +1,14 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
-import htsjdk.samtools.util.StringUtil;
 import joptsimple.OptionException;
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import joptsimple.OptionSpecBuilder;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
-import org.broadinstitute.hellbender.cmdline.GATKPlugin.GATKCommandLinePluginDescriptor;
-import org.broadinstitute.hellbender.exceptions.GATKException;
-import org.broadinstitute.hellbender.exceptions.UserException;
-import org.broadinstitute.hellbender.utils.Utils;
+import org.apache.commons.lang3.text.WordUtils;
+
+import org.broadinstitute.barclay.utils.Utils;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -20,8 +17,6 @@ import java.io.PrintStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -38,12 +33,13 @@ import java.util.stream.Stream;
 /**
  * Annotation-driven utility for parsing command-line arguments, checking for errors, and producing usage message.
  * <p/>
- * This class supports arguments of the form KEY=VALUE, plus positional arguments.  Positional arguments must not contain
- * an equal sign lest they be mistaken for a KEY=VALUE pair.
+ * This class supports arguments of the form -KEY VALUE, plus positional arguments.  Positional arguments must not contain
+ * an equal sign lest they be mistaken for a -KEY VALUE pair.
  * <p/>
  * The caller must supply an object that both defines the command line and has the parsed arguments set into it.
- * For each possible KEY=VALUE argument, there must be a public data member annotated with @Argument.  The KEY name is
- * the name of the data member.  An abbreviated name may also be specified with the shortName attribute of @Argument.
+ * For each possible "-KEY VALUE" argument, there must be a public data member annotated with @Argument.  The KEY name is
+ * the name of the fullName attribute of @Argument.  An abbreviated name may also be specified with the shortName attribute
+ * of @Argument.
  * If the data member is a List<T>, then the argument may be specified multiple times.  The type of the data member,
  * or the type of the List element must either have a ctor T(String), or must be an Enum.  List arguments must
  * be initialized by the caller with some kind of list.  Any other argument that is non-null is assumed to have the given
@@ -59,7 +55,7 @@ import java.util.stream.Stream;
  * construct the usage message.  Details about the possible arguments are automatically appended to this string.
  * If @Usage does not appear, a boilerplate usage message is used.
  */
-public final class CommandLineParser {
+public final class CommandLineArgumentParser implements CommandLineParser {
     // For formatting argument section of usage message.
     private static final int ARGUMENT_COLUMN_WIDTH = 30;
     private static final int DESCRIPTION_COLUMN_WIDTH = 90;
@@ -75,11 +71,12 @@ public final class CommandLineParser {
     public static final String COMMENT = "#";
     public static final String POSITIONAL_ARGUMENTS_NAME = "Positional Argument";
 
-    // Map from (full class) name of each GATKCommandLinePluginDescriptor requested and
+    // Map from (full class) name of each CommandLinePluginDescriptor requested and
     // found to the actual descriptor instance
-    private Map<String, GATKCommandLinePluginDescriptor<?>> pluginDescriptors = new HashMap<>();
+    private Map<String, CommandLinePluginDescriptor<?>> pluginDescriptors = new HashMap<>();
 
     // Return the plugin instance corresponding to the targetDescriptor class
+    @Override
     public <T> T getPluginDescriptor(Class<T> targetDescriptor) {
         return targetDescriptor.cast(pluginDescriptors.get(targetDescriptor.getName()));
     }
@@ -89,11 +86,10 @@ public final class CommandLineParser {
     /**
      * A typical command line program will call this to get the beginning of the usage message,
      * and then append a description of the program, like this:
-     * <p/>
-     * \@Usage
-     * public String USAGE = CommandLineParser.getStandardUsagePreamble(getClass()) + "Frobnicates the freebozzle."
+     * commandLineParser.getStandardUsagePreamble(getClass()) + "Frobnicates the freebozzle."
      */
-    public static String getStandardUsagePreamble(final Class<?> mainClass) {
+    @Override
+    public String getStandardUsagePreamble(final Class<?> mainClass) {
         return "USAGE: " + mainClass.getSimpleName() + " [arguments]\n\n";
     }
 
@@ -154,21 +150,21 @@ public final class CommandLineParser {
      * @param callerArguments The object containing the command line arguments to be populated by
      *                        this command line parser.
      */
-    public CommandLineParser(final Object callerArguments) {
+    public CommandLineArgumentParser(final Object callerArguments) {
         this(callerArguments, new ArrayList<>());
     }
 
     /**
      * @param callerArguments The object containing the command line arguments to be populated by
      *                        this command line parser.
-     * @param pluginDescriptors A list of {@link GATKCommandLinePluginDescriptor} objects that
+     * @param pluginDescriptors A list of {@link CommandLinePluginDescriptor} objects that
      *                          should be used by this command line parser to extend the list of
      *                          command line arguments with dynamically discovered plugins. If
      *                          null, no descriptors are loaded.
      */
-    public CommandLineParser(
+    public CommandLineArgumentParser(
             final Object callerArguments,
-            final List<? extends GATKCommandLinePluginDescriptor<?>> pluginDescriptors) {
+            final List<? extends CommandLinePluginDescriptor<?>> pluginDescriptors) {
         Utils.nonNull(callerArguments, "The object with command line arguments cannot be null");
         Utils.nonNull(pluginDescriptors, "The list of pluginDescriptors cannot be null");
 
@@ -182,10 +178,10 @@ public final class CommandLineParser {
 
     private void createArgumentDefinitions(
             final Object callerArguments,
-            final GATKCommandLinePluginDescriptor<?> controllingDescriptor) {
-        for (final Field field : getAllFields(callerArguments.getClass())) {
+            final CommandLinePluginDescriptor<?> controllingDescriptor) {
+        for (final Field field : CommandLineParser.getAllFields(callerArguments.getClass())) {
             if (field.getAnnotation(Argument.class) != null && field.getAnnotation(ArgumentCollection.class) != null){
-                throw new GATKException.CommandLineParserInternalException("An Argument cannot be an argument collection: "
+                throw new CommandLineException.CommandLineParserInternalException("An Argument cannot be an argument collection: "
                         +field.getName() + " in " + callerArguments.toString() + " is annotated as both.");
             }
             if (field.getAnnotation(PositionalArguments.class) != null) {
@@ -199,7 +195,7 @@ public final class CommandLineParser {
                     field.setAccessible(true);
                     createArgumentDefinitions(field.get(callerArguments), controllingDescriptor);
                 } catch (final IllegalAccessException e) {
-                    throw new GATKException.ShouldNeverReachHereException("should never reach here because we setAccessible(true)", e);
+                    throw new CommandLineException.ShouldNeverReachHereException("should never reach here because we setAccessible(true)", e);
                 }
             }
         }
@@ -207,22 +203,22 @@ public final class CommandLineParser {
 
     // Find all the instances of plugins specified by the provided plugin descriptors
     private void createCommandLinePluginArgumentDefinitions(
-            final List<? extends GATKCommandLinePluginDescriptor<?>> requestedPluginDescriptors) {
+            final List<? extends CommandLinePluginDescriptor<?>> requestedPluginDescriptors) {
         // For each descriptor, create the argument definitions for the descriptor object itself,
         // then process it's plugin classes
         requestedPluginDescriptors.forEach(
-            descriptor -> {
-                pluginDescriptors.put(descriptor.getClass().getName(), descriptor);
-                createArgumentDefinitions(descriptor, null);
-                findPluginsForDescriptor(descriptor);
-            }
+                descriptor -> {
+                    pluginDescriptors.put(descriptor.getClass().getName(), descriptor);
+                    createArgumentDefinitions(descriptor, null);
+                    findPluginsForDescriptor(descriptor);
+                }
         );
     }
 
     // Find all of the classes that derive from the class specified by the descriptor, obtain an
     // instance each and add its ArgumentDefinitions
     private void findPluginsForDescriptor(
-            final GATKCommandLinePluginDescriptor<?> pluginDescriptor) {
+            final CommandLinePluginDescriptor<?> pluginDescriptor) {
         final ClassFinder classFinder = new ClassFinder();
         pluginDescriptor.getPackageNames().forEach(
                 pkg -> classFinder.find(pkg, pluginDescriptor.getPluginClass()));
@@ -236,22 +232,14 @@ public final class CommandLineParser {
                     plugins.add(plugin);
                     createArgumentDefinitions(plugin, pluginDescriptor);
                 } catch (InstantiationException | IllegalAccessException e) {
-                    throw new GATKException("Problem making an instance of plugin " + c +
+                    throw new CommandLineException.CommandLineParserInternalException("Problem making an instance of plugin " + c +
                             " Do check that the class has a non-arg constructor", e);
                 }
             }
         }
     }
 
-    private static List<Field> getAllFields(Class<?> clazz) {
-        final List<Field> ret = new ArrayList<>();
-        do {
-            ret.addAll(Arrays.asList(clazz.getDeclaredFields()));
-            clazz = clazz.getSuperclass();
-        } while (clazz != null);
-        return ret;
-    }
-
+    @Override
     public String getVersion() {
         return "Version:" + this.callerArguments.getClass().getPackage().getImplementationVersion();
     }
@@ -262,6 +250,7 @@ public final class CommandLineParser {
      * @param stream Where to write the usage message.
      * @param printCommon True if common args should be included in the usage message.
      */
+    @Override
     public void usage(final PrintStream stream, final boolean printCommon) {
         stream.print(getStandardUsagePreamble(callerArguments.getClass()) + getUsagePreamble());
         stream.println("\n" + getVersion());
@@ -296,18 +285,18 @@ public final class CommandLineParser {
         List<ArgumentDefinition> conditionalArgs = allArgsMap.get(false);
         if (null != conditionalArgs && !conditionalArgs.isEmpty()) {
             // group all of the conditional argdefs by the name of their controlling pluginDescriptor class
-            final Map<GATKCommandLinePluginDescriptor<?>, List<ArgumentDefinition>> argsByControllingDescriptor =
+            final Map<CommandLinePluginDescriptor<?>, List<ArgumentDefinition>> argsByControllingDescriptor =
                     conditionalArgs
                             .stream()
                             .collect(Collectors.groupingBy(argDef -> argDef.controllingDescriptor));
 
             // sort the list of controlling pluginDescriptors by display name and iterate through them
-            final List<GATKCommandLinePluginDescriptor<?>> pluginDescriptorSortedByName =
+            final List<CommandLinePluginDescriptor<?>> pluginDescriptorSortedByName =
                     new ArrayList<>(argsByControllingDescriptor.keySet());
             pluginDescriptorSortedByName.sort(
                     (a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.getDisplayName(), b.getDisplayName())
             );
-            for (final GATKCommandLinePluginDescriptor<?> descriptor: pluginDescriptorSortedByName) {
+            for (final CommandLinePluginDescriptor<?> descriptor: pluginDescriptorSortedByName) {
                 stream.println("Conditional Arguments for " + descriptor.getDisplayName() + ":\n");
                 // get all the argument definitions controlled by this pluginDescriptor's plugins, group
                 // those by plugin, and get the sorted list of names of the owning plugins
@@ -335,9 +324,10 @@ public final class CommandLineParser {
      * @param messageStream Where to write error messages.
      * @param args          Command line tokens.
      * @return true if command line is valid and the program should run, false if help or version was requested
-     * @throws UserException.CommandLineException if there is an invalid command line
+     * @throws CommandLineException if there is an invalid command line
      */
     @SuppressWarnings("unchecked")
+    @Override
     public boolean parseArguments(final PrintStream messageStream, final String[] args) {
         this.argv = args;
 
@@ -359,7 +349,7 @@ public final class CommandLineParser {
         try {
             parsedArguments = parser.parse(args);
         } catch (final OptionException e) {
-            throw new UserException.CommandLineException(e.getMessage());
+            throw new CommandLineException(e.getMessage());
         }
         //Check for the special arguments file flag
         //if it's seen, read arguments from that file and recursively call parseArguments()
@@ -423,7 +413,7 @@ public final class CommandLineParser {
      * After command line has been parsed, make sure that all required arguments have values, and that
      * lists with minimum # of elements have sufficient values.
      *
-     * @throws UserException.CommandLineException if arguments requirements are not satisfied.
+     * @throws CommandLineException if arguments requirements are not satisfied.
      */
     private void assertArgumentsAreValid()  {
         validatePluginArguments(); // trim the list of plugin-derived argument definitions before validation
@@ -438,7 +428,7 @@ public final class CommandLineParser {
                     }
                 }
                 if (argumentDefinition.hasBeenSet && mutextArgumentNames.length() > 0) {
-                    throw new UserException.CommandLineException("Argument '" + fullName +
+                    throw new CommandLineException("Argument '" + fullName +
                             "' cannot be used in conjunction with argument(s)" +
                             mutextArgumentNames.toString());
                 }
@@ -446,10 +436,10 @@ public final class CommandLineParser {
                     @SuppressWarnings("rawtypes")
                     final Collection c = (Collection) argumentDefinition.getFieldValue();
                     if (c.isEmpty()) {
-                        throw new UserException.MissingArgument(fullName, "Argument '" + fullName + "' must be specified at least once.");
+                        throw new CommandLineException.MissingArgument(fullName, "Argument '" + fullName + "' must be specified at least once.");
                     }
                 } else if (!argumentDefinition.optional && !argumentDefinition.hasBeenSet && mutextArgumentNames.length() == 0) {
-                    throw new UserException.MissingArgument(fullName, "Argument '" + fullName + "' is required" +
+                    throw new CommandLineException.MissingArgument(fullName, "Argument '" + fullName + "' is required" +
                             (argumentDefinition.mutuallyExclusive.isEmpty() ? "." : " unless any of " + argumentDefinition.mutuallyExclusive +
                                     " are specified."));
                 }
@@ -458,12 +448,12 @@ public final class CommandLineParser {
                 @SuppressWarnings("rawtypes")
                 final Collection c = (Collection) positionalArguments.get(positionalArgumentsParent);
                 if (c.size() < minPositionalArguments) {
-                    throw new UserException.MissingArgument(POSITIONAL_ARGUMENTS_NAME,"At least " + minPositionalArguments +
+                    throw new CommandLineException.MissingArgument(POSITIONAL_ARGUMENTS_NAME,"At least " + minPositionalArguments +
                             " positional arguments must be specified.");
                 }
             }
         } catch (final IllegalAccessException e) {
-            throw new GATKException.ShouldNeverReachHereException("Should never happen",e);
+            throw new CommandLineException.ShouldNeverReachHereException("Should never happen",e);
         }
 
     }
@@ -487,7 +477,7 @@ public final class CommandLineParser {
                     if (!isAllowed) {
                         // dangling dependent argument; a value was specified but it's containing
                         // (predecessor) plugin argument wasn't specified
-                        throw new UserException.CommandLineException(
+                        throw new CommandLineException(
                                 String.format(
                                         "Argument \"%s/%s\" is only valid when the argument \"%s\" is specified",
                                         argumentDefinition.shortName,
@@ -513,18 +503,18 @@ public final class CommandLineParser {
     @SuppressWarnings("unchecked")
     private void setPositionalArgument(final String stringValue) {
         if (positionalArguments == null) {
-            throw new UserException.CommandLineException("Invalid argument '" + stringValue + "'.");
+            throw new CommandLineException("Invalid argument '" + stringValue + "'.");
         }
-        final Object value = constructFromString(getUnderlyingType(positionalArguments), stringValue, POSITIONAL_ARGUMENTS_NAME);
+        final Object value = constructFromString(CommandLineParser.getUnderlyingType(positionalArguments), stringValue, POSITIONAL_ARGUMENTS_NAME);
         @SuppressWarnings("rawtypes")
         final Collection c;
         try {
             c = (Collection) positionalArguments.get(callerArguments);
         } catch (final IllegalAccessException e) {
-            throw new GATKException.ShouldNeverReachHereException(e);
+            throw new CommandLineException.ShouldNeverReachHereException(e);
         }
         if (c.size() >= maxPositionalArguments) {  //we're checking if there is space to add another argument
-            throw new UserException.CommandLineException("No more than " + maxPositionalArguments +
+            throw new CommandLineException("No more than " + maxPositionalArguments +
                     " positional arguments may be specified on the command line.");
         }
         c.add(value);
@@ -540,7 +530,7 @@ public final class CommandLineParser {
         }
 
         if (!argumentDefinition.isCollection && (argumentDefinition.hasBeenSet || values.size() > 1)) {
-                throw new UserException.CommandLineException("Argument '" + argumentDefinition.getNames() + "' cannot be specified more than once.");
+            throw new CommandLineException("Argument '" + argumentDefinition.getNames() + "' cannot be specified more than once.");
         }
 
         for (String stringValue: values) {
@@ -551,10 +541,10 @@ public final class CommandLineParser {
                 if (argumentDefinition.optional) {
                     value = null;
                 } else {
-                    throw new UserException.CommandLineException("Non \"null\" value must be provided for '" + argumentDefinition.getNames() + "'.");
+                    throw new CommandLineException("Non \"null\" value must be provided for '" + argumentDefinition.getNames() + "'.");
                 }
             } else {
-                value = constructFromString(getUnderlyingType(argumentDefinition.field), stringValue, argumentDefinition.getLongName());
+                value = constructFromString(CommandLineParser.getUnderlyingType(argumentDefinition.field), stringValue, argumentDefinition.getLongName());
             }
 
             if (argumentDefinition.isCollection) {
@@ -583,28 +573,28 @@ public final class CommandLineParser {
      */
     private List<String> loadArgumentsFile(final String argumentsFile) {
         List<String> args = new ArrayList<>();
-            try (BufferedReader reader = new BufferedReader(new FileReader(argumentsFile))){
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (!line.startsWith(COMMENT) && !line.trim().isEmpty()) {
-                        args.addAll(Arrays.asList(StringUtils.split(line)));
-                    }
+        try (BufferedReader reader = new BufferedReader(new FileReader(argumentsFile))){
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith(COMMENT) && !line.trim().isEmpty()) {
+                    args.addAll(Arrays.asList(StringUtils.split(line)));
                 }
-            } catch (final IOException e) {
-                throw new UserException("I/O error loading arguments file:" + argumentsFile, e);
             }
+        } catch (final IOException e) {
+            throw new CommandLineException("I/O error loading arguments file:" + argumentsFile, e);
+        }
         return args;
     }
 
     private void printArgumentUsage(final PrintStream stream, final ArgumentDefinition argumentDefinition) {
         printArgumentParamUsage(stream, argumentDefinition.getLongName(), argumentDefinition.shortName,
-                getUnderlyingType(argumentDefinition.field).getSimpleName(),
+                CommandLineParser.getUnderlyingType(argumentDefinition.field).getSimpleName(),
                 makeArgumentDescription(argumentDefinition));
     }
 
 
     private void printArgumentParamUsage(final PrintStream stream, final String name, final String shortName,
-                                       final String type, final String argumentDescription) {
+                                         final String type, final String argumentDescription) {
         String argumentLabel = name;
         if (type != null) argumentLabel = "--"+ argumentLabel;
 
@@ -620,7 +610,7 @@ public final class CommandLineParser {
             numSpaces = ARGUMENT_COLUMN_WIDTH;
         }
         printSpaces(stream, numSpaces);
-        final String wrappedDescription = StringUtil.wordWrap(argumentDescription, DESCRIPTION_COLUMN_WIDTH);
+        final String wrappedDescription = WordUtils.wrap(argumentDescription, DESCRIPTION_COLUMN_WIDTH);
         final String[] descriptionLines = wrappedDescription.split("\n");
         for (int i = 0; i < descriptionLines.length; ++i) {
             if (i > 0) {
@@ -654,11 +644,11 @@ public final class CommandLineParser {
         // if this argument definition is a string field contained within a plugin descriptor (i.e.,
         // it holds the names of plugins specified by the user on the command line, such as read filter names),
         // then we need to delegate to the plugin descriptor to generate the list of allowed values
-        if (GATKCommandLinePluginDescriptor.class.isAssignableFrom(argumentDefinition.parent.getClass()) &&
-                getUnderlyingType(argumentDefinition.field).equals(String.class)) {
+        if (CommandLinePluginDescriptor.class.isAssignableFrom(argumentDefinition.parent.getClass()) &&
+                CommandLineParser.getUnderlyingType(argumentDefinition.field).equals(String.class)) {
             usageForPluginDescriptorArgument(argumentDefinition, sb);
         } else {
-            sb.append(getOptions(getUnderlyingType(argumentDefinition.field)));
+            sb.append(getOptions(CommandLineParser.getUnderlyingType(argumentDefinition.field)));
         }
         if (!argumentDefinition.mutuallyExclusive.isEmpty()) {
             sb.append(" Cannot be used in conjuction with argument(s)");
@@ -666,8 +656,8 @@ public final class CommandLineParser {
                 final ArgumentDefinition mutextArgumentDefinition = argumentMap.get(argument);
 
                 if (mutextArgumentDefinition == null) {
-                    throw new GATKException("Invalid argument definition in source code.  " + argument +
-                                                  " doesn't match any known argument.");
+                    throw new CommandLineException("Invalid argument definition in source code.  " + argument +
+                            " doesn't match any known argument.");
                 }
                 sb.append(" ").append(mutextArgumentDefinition.fieldName);
                 if (!mutextArgumentDefinition.shortName.isEmpty()) {
@@ -679,7 +669,7 @@ public final class CommandLineParser {
     }
 
     private void usageForPluginDescriptorArgument(final ArgumentDefinition argDef, final StringBuilder sb) {
-        final GATKCommandLinePluginDescriptor<?> descriptor = (GATKCommandLinePluginDescriptor<?>) argDef.parent;
+        final CommandLinePluginDescriptor<?> descriptor = (CommandLinePluginDescriptor<?>) argDef.parent;
         // this argument came from a plugin descriptor; delegate to get the list of allowed values
         final List<String> allowedValues = new ArrayList<>(descriptor.getAllowedValuesForDescriptorArgument(argDef.getLongName()));
         if (allowedValues.isEmpty()) {
@@ -693,9 +683,9 @@ public final class CommandLineParser {
     }
 
     /**
-      * Generates the option help string for a {@code boolean} or {@link Boolean} typed argument.
-      * @return never {@code null}.
-      */
+     * Generates the option help string for a {@code boolean} or {@link Boolean} typed argument.
+     * @return never {@code null}.
+     */
     private String getBooleanOptions() {
         return String.format("%s%s, %s%s", ENUM_OPTION_DOC_PREFIX, Boolean.TRUE, Boolean.FALSE, ENUM_OPTION_DOC_SUFFIX);
     }
@@ -706,7 +696,7 @@ public final class CommandLineParser {
      * @param clazz target enum class. Assumed no to be {@code null}.
      * @param <T> enum class type.
      * @param <U> ClpEnum implementing version of <code>&lt;T&gt</code>;.
-     * @throws GATKException if {@code &lt;T&gt;} has no constants.
+     * @throws CommandLineException if {@code &lt;T&gt;} has no constants.
      * @return never {@code null}.
      */
     private <T extends Enum<T>,U extends Enum<U> & ClpEnum> String getEnumOptions(final Class<T> clazz) {
@@ -714,7 +704,7 @@ public final class CommandLineParser {
         // getEnumConstants() won't ever return a null.
         final T[] enumConstants = clazz.getEnumConstants();
         if (enumConstants.length == 0) {
-            throw new GATKException(String.format("Bad argument enum type '%s' with no options", clazz.getName()));
+            throw new CommandLineException(String.format("Bad argument enum type '%s' with no options", clazz.getName()));
         }
 
         if (ClpEnum.class.isAssignableFrom(clazz)) {
@@ -783,7 +773,7 @@ public final class CommandLineParser {
     }
 
     private void handleArgumentAnnotation(
-            final Field field, final Object parent, final GATKCommandLinePluginDescriptor<?> controllingDescriptor) {
+            final Field field, final Object parent, final CommandLinePluginDescriptor<?> controllingDescriptor) {
         try {
             field.setAccessible(true);
             final Argument argumentAnnotation = field.getAnnotation(Argument.class);
@@ -794,8 +784,8 @@ public final class CommandLineParser {
                     createCollection(field, parent, "@Argument");
                 }
             }
-            if (!canBeMadeFromString(getUnderlyingType(field))) {
-                throw new GATKException.CommandLineParserInternalException("@Argument member \"" + field.getName() +
+            if (!canBeMadeFromString(CommandLineParser.getUnderlyingType(field))) {
+                throw new CommandLineException.CommandLineParserInternalException("@Argument member \"" + field.getName() +
                         "\" must have a String constructor or be an enum");
             }
 
@@ -808,13 +798,13 @@ public final class CommandLineParser {
                 }
             }
             if (inArgumentMap(argumentDefinition)) {
-                throw new GATKException.CommandLineParserInternalException(argumentDefinition.getNames() + " has already been used.");
+                throw new CommandLineException.CommandLineParserInternalException(argumentDefinition.getNames() + " has already been used.");
             } else {
                 putInArgumentMap(argumentDefinition);
                 argumentDefinitions.add(argumentDefinition);
             }
         } catch (final IllegalAccessException e) {
-            throw new GATKException.ShouldNeverReachHereException("We should not have reached here because we set accessible to true", e);
+            throw new CommandLineException.ShouldNeverReachHereException("We should not have reached here because we set accessible to true", e);
         }
     }
 
@@ -830,18 +820,18 @@ public final class CommandLineParser {
 
     private void handlePositionalArgumentAnnotation(final Field field, Object parent) {
         if (positionalArguments != null) {
-            throw new GATKException.CommandLineParserInternalException
+            throw new CommandLineException.CommandLineParserInternalException
                     ("@PositionalArguments cannot be used more than once in an argument class.");
         }
         field.setAccessible(true);
         positionalArguments = field;
         positionalArgumentsParent = parent;
         if (!isCollectionField(field)) {
-            throw new GATKException.CommandLineParserInternalException("@PositionalArguments must be applied to a Collection");
+            throw new CommandLineException.CommandLineParserInternalException("@PositionalArguments must be applied to a Collection");
         }
 
-        if (!canBeMadeFromString(getUnderlyingType(field))) {
-            throw new GATKException.CommandLineParserInternalException("@PositionalParameters member " + field.getName() +
+        if (!canBeMadeFromString(CommandLineParser.getUnderlyingType(field))) {
+            throw new CommandLineException.CommandLineParserInternalException("@PositionalParameters member " + field.getName() +
                     "does not have a String ctor");
         }
 
@@ -849,7 +839,7 @@ public final class CommandLineParser {
         minPositionalArguments = positionalArgumentsAnnotation.minElements();
         maxPositionalArguments = positionalArgumentsAnnotation.maxElements();
         if (minPositionalArguments > maxPositionalArguments) {
-            throw new GATKException.CommandLineParserInternalException("In @PositionalArguments, minElements cannot be > maxElements");
+            throw new CommandLineException.CommandLineParserInternalException("In @PositionalArguments, minElements cannot be > maxElements");
         }
         try {
             field.setAccessible(true);
@@ -857,13 +847,13 @@ public final class CommandLineParser {
                 createCollection(field, parent, "@PositionalParameters");
             }
         } catch (final IllegalAccessException e) {
-            throw new GATKException.ShouldNeverReachHereException("We should not have reached here because we set accessible to true", e);
+            throw new CommandLineException.ShouldNeverReachHereException("We should not have reached here because we set accessible to true", e);
 
         }
     }
 
 
-    public static boolean isCollectionField(final Field field) {
+    private static boolean isCollectionField(final Field field) {
         try {
             field.getType().asSubclass(Collection.class);
             return true;
@@ -880,48 +870,13 @@ public final class CommandLineParser {
             try {
                 field.set(callerArguments, new ArrayList<>());
             } catch (final IllegalArgumentException e) {
-                throw new GATKException.CommandLineParserInternalException("In collection " + annotationType +
+                throw new CommandLineException.CommandLineParserInternalException("In collection " + annotationType +
                         " member " + field.getName() +
                         " cannot be constructed or auto-initialized with ArrayList, so collection must be initialized explicitly.");
             }
 
         }
 
-    }
-
-    /**
-     * Returns the type that each instance of the argument needs to be converted to. In
-     * the case of primitive fields it will return the wrapper type so that String
-     * constructors can be found.
-     */
-    private static Class<?> getUnderlyingType(final Field field) {
-        if (isCollectionField(field)) {
-            final ParameterizedType clazz = (ParameterizedType) (field.getGenericType());
-            final Type[] genericTypes = clazz.getActualTypeArguments();
-            if (genericTypes.length != 1) {
-                throw new GATKException.CommandLineParserInternalException("Strange collection type for field " +
-                        field.getName());
-            }
-
-            // If the Collection's parametrized type is itself parametrized (eg., List<Foo<Bar>>),
-            // return the raw type of the outer parameter (Foo.class, in this example) to avoid a
-            // ClassCastException. Otherwise, return the Collection's type parameter directly as a Class.
-            return (Class<?>) (genericTypes[0] instanceof ParameterizedType ?
-                               ((ParameterizedType)genericTypes[0]).getRawType() :
-                               genericTypes[0]);
-
-        } else {
-            final Class<?> type = field.getType();
-            if (type == Byte.TYPE) return Byte.class;
-            if (type == Short.TYPE) return Short.class;
-            if (type == Integer.TYPE) return Integer.class;
-            if (type == Long.TYPE) return Long.class;
-            if (type == Float.TYPE) return Float.class;
-            if (type == Double.TYPE) return Double.class;
-            if (type == Boolean.TYPE) return Boolean.class;
-
-            return type;
-        }
     }
 
     // True if clazz is an enum, or if it has a ctor that takes a single String argument.
@@ -946,7 +901,7 @@ public final class CommandLineParser {
                 try {
                     return Enum.valueOf(clazz, s);
                 } catch (final IllegalArgumentException e) {
-                    throw new UserException.BadArgumentValue(argumentName, s, "'" + s + "' is not a valid value for " +
+                    throw new CommandLineException.BadArgumentValue(argumentName, s, "'" + s + "' is not a valid value for " +
                             clazz.getSimpleName() + ". "+ getEnumOptions(clazz) );
                 }
             }
@@ -957,21 +912,17 @@ public final class CommandLineParser {
             return ctor.newInstance(s);
         } catch (final NoSuchMethodException e) {
             // Shouldn't happen because we've checked for presence of ctor
-            throw new GATKException.ShouldNeverReachHereException("Cannot find string ctor for " + clazz.getName(), e);
+            throw new CommandLineException.ShouldNeverReachHereException("Cannot find string ctor for " + clazz.getName(), e);
         } catch (final InstantiationException e) {
-            throw new GATKException.CommandLineParserInternalException("Abstract class '" + clazz.getSimpleName() +
+            throw new CommandLineException.CommandLineParserInternalException("Abstract class '" + clazz.getSimpleName() +
                     "'cannot be used for an argument value type.", e);
         } catch (final IllegalAccessException e) {
-            throw new GATKException.CommandLineParserInternalException("String constructor for argument value type '" + clazz.getSimpleName() +
+            throw new CommandLineException.CommandLineParserInternalException("String constructor for argument value type '" + clazz.getSimpleName() +
                     "' must be public.", e);
         } catch (final InvocationTargetException e) {
-            throw new UserException.BadArgumentValue(argumentName, s, "Problem constructing " + clazz.getSimpleName() +
+            throw new CommandLineException.BadArgumentValue(argumentName, s, "Problem constructing " + clazz.getSimpleName() +
                     " from the string '" + s + "'.");
         }
-    }
-
-    public interface ClpEnum {
-        String getHelpDoc();
     }
 
     protected static class ArgumentDefinition {
@@ -989,13 +940,13 @@ public final class CommandLineParser {
         final Object parent;
         final boolean isSpecial;
         final boolean isSensitive;
-        final GATKCommandLinePluginDescriptor<?> controllingDescriptor;
+        final CommandLinePluginDescriptor<?> controllingDescriptor;
 
         public ArgumentDefinition(
                 final Field field,
                 final Argument annotation,
                 final Object parent,
-                final GATKCommandLinePluginDescriptor<?> controllingDescriptor) {
+                final CommandLinePluginDescriptor<?> controllingDescriptor) {
             this.field = field;
             this.fieldName = field.getName();
             this.parent = parent;
@@ -1035,7 +986,7 @@ public final class CommandLineParser {
                 field.setAccessible(true);
                 return field.get(parent);
             } catch (IllegalAccessException e) {
-                throw new GATKException.ShouldNeverReachHereException("This shouldn't happen since we setAccessible(true).", e);
+                throw new CommandLineException.ShouldNeverReachHereException("This shouldn't happen since we setAccessible(true).", e);
             }
         }
 
@@ -1044,7 +995,7 @@ public final class CommandLineParser {
                 field.setAccessible(true);
                 field.set(parent, value);
             } catch (IllegalAccessException e) {
-                throw new GATKException.ShouldNeverReachHereException("BUG: couldn't set field value. For "
+                throw new CommandLineException.ShouldNeverReachHereException("BUG: couldn't set field value. For "
                         + fieldName +" in " + parent.toString() + " with value " + value.toString()
                         + " This shouldn't happen since we setAccessible(true)", e);
             }
@@ -1134,6 +1085,7 @@ public final class CommandLineParser {
      * hasn't yet been called, or didn't complete successfully.
      */
     @SuppressWarnings("unchecked")
+    @Override
     public String getCommandLine() {
         final String toolName = callerArguments.getClass().getName();
         final StringBuilder commandLineString = new StringBuilder();
@@ -1144,7 +1096,7 @@ public final class CommandLineParser {
                 positionalArguments.setAccessible(true);
                 positionalArgs = (List<Object>) positionalArguments.get(positionalArgumentsParent);
             } catch (IllegalAccessException e) {
-                throw new GATKException.ShouldNeverReachHereException("Should never reach here because we setAccessible(true)", e);
+                throw new CommandLineException.ShouldNeverReachHereException("Should never reach here because we setAccessible(true)", e);
             }
             for (final Object posArg : positionalArgs) {
                 commandLineString.append(" ").append(posArg.toString());
@@ -1165,75 +1117,4 @@ public final class CommandLineParser {
         return toolName + " " + commandLineString.toString();
     }
 
-
-    /**
-     * Locates and returns the VALUES of all Argument-annotated fields of a specified type in a given object,
-     * pairing each field value with its corresponding Field object.
-     *
-     * Must be called AFTER argument parsing and value injection into argumentSource is complete (otherwise there
-     * will be no values to gather!). As a result, this is implemented as a static utility method into which
-     * the fully-initialized tool instance must be passed.
-     *
-     * Locates Argument-annotated fields of the target type, subtypes of the target type, and Collections of
-     * the target type or one of its subtypes. Unpacks Collection fields, returning a separate Pair for each
-     * value in each Collection.
-     *
-     * Searches argumentSource itself, as well as ancestor classes, and also recurses into any ArgumentCollections
-     * found.
-     *
-     * Will return Pairs containing a null second element for fields having no value, including empty Collection fields
-     * (these represent arguments of the target type that were not specified on the command line and so never initialized).
-     *
-     * @param type Target type. Search for Argument-annotated fields that are either of this type, subtypes of this type, or Collections of this type or one of its subtypes.
-     * @param argumentSource Object whose fields to search. Must have already undergone argument parsing and argument value injection.
-     * @param <T> Type parameter representing the type to search for and return
-     * @return A List of Pairs containing all Argument-annotated field values found of the target type. First element in each Pair
-     *         is the Field object itself, and the second element is the actual value of the argument field. The second
-     *         element will be null for uninitialized fields.
-     */
-    public static <T> List<Pair<Field, T>> gatherArgumentValuesOfType( final Class<T> type, final Object argumentSource ) {
-        List<Pair<Field, T>> argumentValues = new ArrayList<>();
-
-        // Examine all fields in argumentSource (including superclasses)
-        for ( Field field : getAllFields(argumentSource.getClass()) ) {
-            field.setAccessible(true);
-
-            try {
-                // Consider only fields that have Argument annotations and are either of the target type,
-                // subtypes of the target type, or Collections of the target type or one of its subtypes:
-                if ( field.getAnnotation(Argument.class) != null && type.isAssignableFrom(getUnderlyingType(field)) ) {
-
-                    if ( isCollectionField(field) ) {
-                        // Collection arguments are guaranteed by the parsing system to be non-null (at worst, empty)
-                        Collection<?> argumentContainer = (Collection<?>)field.get(argumentSource);
-
-                        // Emit a Pair with an explicit null value for empty Collection arguments
-                        if ( argumentContainer.isEmpty() ) {
-                            argumentValues.add(Pair.of(field, null));
-                        }
-                        // Unpack non-empty Collections of the target type into individual values,
-                        // each paired with the same Field object.
-                        else {
-                            for ( Object argumentValue : argumentContainer ) {
-                                argumentValues.add(Pair.of(field, type.cast(argumentValue)));
-                            }
-                        }
-                    }
-                    else {
-                        // Add values for non-Collection arguments of the target type directly
-                        argumentValues.add(Pair.of(field, type.cast(field.get(argumentSource))));
-                    }
-                }
-                else if ( field.getAnnotation(ArgumentCollection.class) != null ) {
-                    // Recurse into ArgumentCollections for more potential matches.
-                    argumentValues.addAll(gatherArgumentValuesOfType(type, field.get(argumentSource)));
-                }
-            }
-            catch ( IllegalAccessException e ) {
-                throw new GATKException.ShouldNeverReachHereException("field access failed after setAccessible(true)");
-            }
-        }
-
-        return argumentValues;
-    }
 }

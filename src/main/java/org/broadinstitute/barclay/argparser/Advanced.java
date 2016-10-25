@@ -1,9 +1,9 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 import java.lang.annotation.*;
 
 /**
- * Indicates that a walker argument should is considered an advanced option.
+ * Indicates that an argument is considered an advanced option.
  */
 @Documented
 @Inherited

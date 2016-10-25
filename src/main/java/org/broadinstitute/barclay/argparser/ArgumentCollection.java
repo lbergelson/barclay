@@ -1,10 +1,10 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 import java.lang.annotation.*;
 
 /**
- * Used to annotate a field in a CommandLineProgram that holds a instance containing @Option-annotated
- * fields.  To set a value for a nested option on the command line, use <member-name>.<option>=value.
+ * Used to annotate a field in a CommandLineProgram that holds an instance containing @Argument-annotated
+ * fields.
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)

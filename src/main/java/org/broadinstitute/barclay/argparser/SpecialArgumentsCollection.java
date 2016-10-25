@@ -1,9 +1,8 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-
 
 /**
  * This collection is for arguments that require special treatment by the arguments parser itself.

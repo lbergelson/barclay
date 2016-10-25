@@ -1,4 +1,4 @@
-package org.broadinstitute.hellbender.cmdline;
+package org.broadinstitute.barclay.argparser;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
